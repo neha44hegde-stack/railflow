@@ -1,3 +1,4 @@
+import os
 ﻿from flask import Flask, jsonify
 from config import Config
 from extensions import db, jwt, cors
@@ -9,15 +10,19 @@ def create_app(config_class=Config):
     db.init_app(app)
     jwt.init_app(app)
     cors.init_app(
-    app,
-    resources={r"/api/*": {
-        "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
-        "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True,
-    }},
-)
-
+        app,
+        resources={r"/api/*": {
+            # RAILFLOW_RENDER_CORS
+            "origins": [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                os.getenv("FRONTEND_URL", "https://railflow-frontend.onrender.com"),
+            ],
+            "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "supports_credentials": True,
+        }},
+    )
     import models  # noqa
 
     from routes.auth import auth_bp
@@ -47,4 +52,7 @@ def create_app(config_class=Config):
 
 
 if __name__ == "__main__":
-    create_app().run(debug=True, port=5000)
+    import os as _os
+    _port = int(_os.environ.get("PORT", 5000))
+    create_app().run(host="0.0.0.0", port=_port, debug=False)
+
