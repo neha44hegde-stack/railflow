@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RailFlow (Dev Frontend)</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+const API = "/api";
+const token = () => localStorage.getItem("rf_token");
+const setToken = t => t ? localStorage.setItem("rf_token", t) : localStorage.removeItem("rf_token");
+
+async function call(method, path, body) {
+  const r = await fetch(API + path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token() ? { Authorization: "Bearer " + token() } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+
+function Button({ children, onClick, variant = "primary", disabled, type = "button" }) {
+  const v = {
+    primary: "bg-blue-600 text-white hover:bg-blue-500",
+    danger: "bg-red-600 text-white hover:bg-red-500",
+    neutral: "bg-gray-200 text-gray-800 hover:bg-gray-300",
+  }[variant];
+  return <button type={type} onClick={onClick} disabled={disabled}
+    className={"px-4 py-2 rounded-md font-medium disabled:opacity-50 " + v}>{children}</button>;
+}
+const Card = ({ children, className = "" }) =>
+  <div className={"bg-white border border-gray-200 rounded-lg shadow-sm p-4 " + className}>{children}</div>;
+
+function Header({ user, setUser, setPage }) {
+  const logout = () => { setToken(null); setUser(null); setPage("home"); };
+  const nav = p => <button onClick={() => setPage(p)} className="px-3 py-1 text-sm hover:bg-blue-900 rounded">{p}</button>;
+  return (
+    <header className="bg-[#0b1f3a] text-white">
+      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="font-bold text-lg cursor-pointer" onClick={() => setPage("home")}>RAILFLOW</div>
+        <nav className="flex items-center gap-1 flex-wrap">
+          {!user && <>{nav("login")}{nav("register")}{nav("pnr")}</>}
+          {user && user.role === "PASSENGER" && <>{nav("search")}{nav("mybookings")}{nav("pnr")}</>}
+          {user && user.role === "ADMIN" && <>{nav("dashboard")}{nav("stations")}{nav("trains")}{nav("bookings")}{nav("users")}</>}
+          {user && <span className="text-sm text-gray-300 ml-3">{user.name} ({user.role})</span>}
+          {user && <button onClick={logout} className="ml-2 text-gray-300 hover:text-white text-sm">Logout</button>}
+        </nav>
+      </div>
+    </header>
+  );
+}
+
+function Home({ setPage }) {
+  return (
+    <div className="py-10 text-center">
+      <h1 className="text-4xl font-bold text-[#0b1f3a]">RailFlow</h1>
+      <p className="text-gray-600 mt-2">Train management & ticket booking</p>
+      <div className="mt-6 flex justify-center gap-3">
+        <Button onClick={() => setPage("search")}>Search Trains</Button>
+        <Button variant="neutral" onClick={() => setPage("pnr")}>Check PNR</Button>
+      </div>
+    </div>
+  );
+}
+
+function Auth({ mode, setUser, setPage }) {
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "PASSENGER" });
+  const [err, setErr] = useState("");
+  const submit = async e => {
+    e.preventDefault(); setErr("");
+    try {
+      if (mode === "register") await call("POST", "/auth/register", form);
+      const r = await call("POST", "/auth/login", { email: form.email, password: form.password });
+      setToken(r.access_token); setUser(r.user);
+      setPage(r.user.role === "ADMIN" ? "dashboard" : "search");
+    } catch (ex) { setErr(ex.message); }
+  };
+  return (
+    <div className="max-w-md mx-auto mt-10">
+      <Card>
+        <h2 className="text-xl font-bold mb-4">{mode === "register" ? "Register" : "Login"}</h2>
+        {err && <div className="bg-red-50 text-red-700 p-2 rounded mb-3 text-sm">{err}</div>}
+        <form onSubmit={submit} className="space-y-3">
+          {mode === "register" && (
+            <input placeholder="Name" required value={form.name}
+              onChange={e => setForm({ ...form, name: e.target.value })}
+              className="w-full border rounded px-3 py-2" />
+          )}
+          <input type="email" placeholder="Email" required value={form.email}
+            onChange={e => setForm({ ...form, email: e.target.value })}
+            className="w-full border rounded px-3 py-2" />
+          <input type="password" placeholder="Password" required value={form.password}
+            onChange={e => setForm({ ...form, password: e.target.value })}
+            className="w-full border rounded px-3 py-2" />
+          {mode === "register" && (
+            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}
+              className="w-full border rounded px-3 py-2">
+              <option value="PASSENGER">Passenger</option>
+              <option value="ADMIN">Admin</option>
+            </select>
+          )}
+          <Button type="submit">{mode === "register" ? "Create account" : "Sign in"}</Button>
+        </form>
+        <p className="text-sm mt-3 text-gray-600">
+          {mode === "register" ? "Have an account? " : "No account? "}
+          <button className="text-blue-600 underline"
+            onClick={() => setPage(mode === "register" ? "login" : "register")}>
+            {mode === "register" ? "Login" : "Register"}
+          </button>
+        </p>
+      </Card>
+    </div>
+  );
+}
+
+function Search({ setPage }) {
+  const [stations, setStations] = useState([]);
+  const [form, setForm] = useState({ source: "", destination: "", date: new Date(Date.now()+86400000).toISOString().slice(0,10), class: "" });
+  const [results, setResults] = useState(null);
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  useEffect(() => { call("GET", "/stations").then(r => setStations(r.stations)).catch(e => setErr(e.message)); }, []);
+  const search = async e => {
+    e.preventDefault(); setErr(""); setBusy(true); setResults(null);
+    try {
+      const p = new URLSearchParams({ source: form.source, destination: form.destination, date: form.date });
+      if (form.class) p.set("class", form.class);
+      const r = await call("GET", "/trains/search?" + p);
+      setResults(r.trains);
+    } catch (ex) { setErr(ex.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="space-y-4">
+      <Card>
+        <h2 className="font-bold mb-3">Search Trains</h2>
+        <form onSubmit={search} className="grid md:grid-cols-5 gap-2">
+          <select required value={form.source} onChange={e => setForm({...form, source: e.target.value})} className="border rounded px-2 py-1">
+            <option value="">From</option>
+            {stations.map(s => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+          </select>
+          <select required value={form.destination} onChange={e => setForm({...form, destination: e.target.value})} className="border rounded px-2 py-1">
+            <option value="">To</option>
+            {stations.map(s => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+          </select>
+          <input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} className="border rounded px-2 py-1" />
+          <select value={form.class} onChange={e => setForm({...form, class: e.target.value})} className="border rounded px-2 py-1">
+            <option value="">Any class</option>
+            {["Sleeper","AC 3 Tier","AC 2 Tier","AC 1 Tier","Chair Car"].map(c => <option key={c}>{c}</option>)}
+          </select>
+          <Button type="submit" disabled={busy}>{busy ? "Searching..." : "Search"}</Button>
+        </form>
+      </Card>
+      {err && <div className="bg-red-50 text-red-700 p-2 rounded">{err}</div>}
+      {results && results.length === 0 && <Card className="text-center text-gray-500">No trains found for this route and date.</Card>}
+      {results && results.map(r => (
+        <Card key={r.train.id}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-bold">{r.train.train_number} - {r.train.train_name}</div>
+              <div className="text-sm text-gray-600">{r.source.station.name} ({r.departure||"--"}) to {r.destination.station.name} ({r.arrival||"--"})</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {r.classes.map(c => (
+                <div key={c.class_name} className="border rounded px-3 py-2 text-sm">
+                  <div className="font-medium">{c.class_name}</div>
+                  <div className="text-xs text-gray-500">Rs.{c.fare} - {c.available_seats} left</div>
+                </div>
+              ))}
+            </div>
+            <Button onClick={() => setPage({ name: "book", trainId: r.train.id, source: r.source.station.id, destination: r.destination.station.id, date: form.date })}>Book</Button>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function Book({ ctx, setPage }) {
+  const [train, setTrain] = useState(null);
+  const [classes, setClasses] = useState([]);
+  const [cls, setCls] = useState("");
+  const [pax, setPax] = useState([{ name: "", age: "", gender: "MALE" }]);
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    Promise.all([call("GET", "/trains/" + ctx.trainId), call("GET", "/trains/" + ctx.trainId + "/classes")])
+      .then(([t, c]) => { setTrain(t.train); setClasses(c.classes); if (c.classes[0]) setCls(c.classes[0].class_name); })
+      .catch(e => setErr(e.message));
+  }, [ctx.trainId]);
+  const update = (i, k, v) => { const c = [...pax]; c[i][k] = v; setPax(c); };
+  const submit = async e => {
+    e.preventDefault(); setErr(""); setBusy(true);
+    try {
+      const r = await call("POST", "/bookings", {
+        train_id: parseInt(ctx.trainId, 10), journey_date: ctx.date,
+        source_station_id: parseInt(ctx.source, 10), destination_station_id: parseInt(ctx.destination, 10),
+        class_name: cls, passengers: pax.map(p => ({ ...p, age: parseInt(p.age, 10) })),
+      });
+      setPage({ name: "ticket", pnr: r.booking.pnr });
+    } catch (ex) { setErr(ex.message); } finally { setBusy(false); }
+  };
+  if (!train) return <Card>Loading...</Card>;
+  const sel = classes.find(c => c.class_name === cls);
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="font-bold">{train.train_number} - {train.train_name}</div>
+        <div className="text-sm text-gray-600">Journey date: {ctx.date}</div>
+      </Card>
+      <Card>
+        <h3 className="font-semibold mb-2">Class</h3>
+        <div className="grid sm:grid-cols-3 gap-2">
+          {classes.map(c => (
+            <label key={c.class_name} className={"border rounded p-3 cursor-pointer " + (cls === c.class_name ? "border-blue-600 bg-blue-50" : "")}>
+              <input type="radio" className="hidden" checked={cls === c.class_name} onChange={() => setCls(c.class_name)} />
+              <div className="font-medium">{c.class_name}</div>
+              <div className="text-sm text-gray-600">Rs.{c.fare}</div>
+            </label>
+          ))}
+        </div>
+      </Card>
+      <Card>
+        <h3 className="font-semibold mb-2">Passengers</h3>
+        <form onSubmit={submit} className="space-y-2">
+          {err && <div className="bg-red-50 text-red-700 p-2 rounded text-sm">{err}</div>}
+          {pax.map((p, i) => (
+            <div key={i} className="grid grid-cols-12 gap-2">
+              <input placeholder="Name" required value={p.name} onChange={e => update(i, "name", e.target.value)} className="col-span-5 border rounded px-2 py-1" />
+              <input type="number" placeholder="Age" required min={1} max={120} value={p.age} onChange={e => update(i, "age", e.target.value)} className="col-span-3 border rounded px-2 py-1" />
+              <select value={p.gender} onChange={e => update(i, "gender", e.target.value)} className="col-span-3 border rounded px-2 py-1">
+                <option>MALE</option><option>FEMALE</option><option>OTHER</option>
+              </select>
+              <button type="button" disabled={pax.length === 1} onClick={() => setPax(pax.filter((_, idx) => idx !== i))} className="col-span-1 text-red-600 disabled:opacity-30">x</button>
+            </div>
+          ))}
+          {pax.length < 6 && <Button variant="neutral" onClick={() => setPax([...pax, { name: "", age: "", gender: "MALE" }])}>+ Add passenger</Button>}
+          <div className="border-t pt-3 flex justify-between items-center">
+            <div className="text-sm">{sel ? <>Fare: Rs.{sel.fare} x {pax.length} = <b>Rs.{sel.fare * pax.length}</b></> : "Select a class"}</div>
+            <Button type="submit" disabled={busy || !sel}>{busy ? "Booking..." : "Confirm Booking (Test Payment)"}</Button>
+          </div>
+        </form>
+      </Card>
+    </div>
+  );
+}
+
+function MyBookings({ setPage }) {
+  const [items, setItems] = useState(null); const [err, setErr] = useState("");
+  const load = () => call("GET", "/bookings/my").then(r => setItems(r.bookings)).catch(e => setErr(e.message));
+  useEffect(load, []);
+  const cancel = async id => {
+    if (!confirm("Cancel booking?")) return;
+    try { await call("POST", "/bookings/" + id + "/cancel"); load(); } catch (ex) { alert(ex.message); }
+  };
+  if (!items) return <Card>Loading...</Card>;
+  return (
+    <div className="space-y-3">
+      <h2 className="text-xl font-bold">My Bookings</h2>
+      {err && <div className="bg-red-50 text-red-700 p-2 rounded">{err}</div>}
+      {items.length === 0 && <Card className="text-gray-500 text-center">No bookings yet.</Card>}
+      {items.map(b => (
+        <Card key={b.id}>
+          <div className="flex justify-between flex-wrap gap-2">
+            <div>
+              <div className="font-bold">{b.pnr}</div>
+              <div className="text-sm">{b.train?.train_number} - {b.train?.train_name}</div>
+              <div className="text-sm text-gray-600">{b.source_station?.name} to {b.destination_station?.name} on {b.journey_date}</div>
+              <div className="text-sm text-gray-600">{b.class_name} - Rs.{b.total_amount}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={"px-2 py-1 text-xs rounded " + (b.status === "CONFIRMED" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800")}>{b.status}</span>
+              <button onClick={() => setPage({ name: "ticket", pnr: b.pnr })} className="text-blue-600 text-sm underline">View</button>
+              {b.status === "CONFIRMED" && <Button variant="danger" onClick={() => cancel(b.id)}>Cancel</Button>}
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function Pnr() {
+  const [pnr, setPnr] = useState(""); const [b, setB] = useState(null); const [err, setErr] = useState("");
+  const lookup = async e => {
+    e.preventDefault(); setErr(""); setB(null);
+    try { const r = await call("GET", "/pnr/" + pnr.trim()); setB(r.booking); } catch (ex) { setErr(ex.message); }
+  };
+  return (
+    <div className="max-w-xl mx-auto space-y-3">
+      <Card>
+        <h2 className="font-bold mb-2">PNR Status</h2>
+        <form onSubmit={lookup} className="flex gap-2">
+          <input placeholder="Enter PNR" required value={pnr} onChange={e => setPnr(e.target.value)} className="flex-1 border rounded px-3 py-2" />
+          <Button type="submit">Check</Button>
+        </form>
+        {err && <div className="bg-red-50 text-red-700 p-2 rounded mt-2 text-sm">{err}</div>}
+      </Card>
+      {b && (
+        <Card className="space-y-1 text-sm">
+          <Row l="PNR" v={b.pnr} /><Row l="Train" v={(b.train?.train_number||"") + " - " + (b.train?.train_name||"")} />
+          <Row l="Date" v={b.journey_date} /><Row l="Route" v={(b.source_station?.name||"") + " to " + (b.destination_station?.name||"")} />
+          <Row l="Class" v={b.class_name} /><Row l="Amount" v={"Rs." + b.total_amount} /><Row l="Status" v={b.status} />
+        </Card>
+      )}
+    </div>
+  );
+}
+const Row = ({ l, v }) => <div className="flex justify-between border-b py-1"><span className="text-gray-500">{l}</span><span className="font-medium">{v}</span></div>;
+
+function Ticket({ ctx }) {
+  const [b, setB] = useState(null); const [err, setErr] = useState("");
+  useEffect(() => { call("GET", "/pnr/" + ctx.pnr).then(r => setB(r.booking)).catch(e => setErr(e.message)); }, [ctx.pnr]);
+  if (err) return <Card className="text-red-700">{err}</Card>;
+  if (!b) return <Card>Loading...</Card>;
+  return (
+    <div className="max-w-2xl mx-auto space-y-3">
+      <div className="flex justify-end"><Button onClick={() => window.print()}>Print Ticket</Button></div>
+      <Card>
+        <h2 className="text-2xl font-bold">RAILFLOW</h2>
+        <p className="text-sm text-gray-500 mb-3">E-Ticket - not a real railway ticket</p>
+        <Row l="PNR" v={b.pnr} /><Row l="Train" v={(b.train?.train_number||"") + " - " + (b.train?.train_name||"")} />
+        <Row l="Date" v={b.journey_date} /><Row l="From" v={b.source_station?.name} /><Row l="To" v={b.destination_station?.name} />
+        <Row l="Class" v={b.class_name} /><Row l="Fare" v={"Rs." + b.total_amount} /><Row l="Status" v={b.status} />
+        <h3 className="font-semibold mt-4 mb-1">Passengers</h3>
+        <table className="w-full text-sm"><thead><tr className="text-left text-gray-500"><th>Name</th><th>Age</th><th>Gender</th><th>Seat</th></tr></thead>
+        <tbody>{b.passengers.map(p => <tr key={p.id} className="border-t"><td>{p.name}</td><td>{p.age}</td><td>{p.gender}</td><td>{p.seat_number}</td></tr>)}</tbody></table>
+      </Card>
+    </div>
+  );
+}
+
+function AdminStations() {
+  const [items, setItems] = useState(null); const [form, setForm] = useState({name:"",code:"",city:"",state:""}); const [err, setErr] = useState("");
+  const load = () => call("GET", "/stations").then(r => setItems(r.stations)).catch(e => setErr(e.message));
+  useEffect(load, []);
+  const submit = async e => {
+    e.preventDefault(); setErr("");
+    try { await call("POST", "/stations", form); setForm({name:"",code:"",city:"",state:""}); load(); } catch (ex) { setErr(ex.message); }
+  };
+  const del = async id => { if (!confirm("Delete?")) return; try { await call("DELETE", "/stations/" + id); load(); } catch (ex) { setErr(ex.message); } };
+  return (
+    <div className="space-y-3">
+      <h2 className="text-xl font-bold">Stations</h2>
+      <Card><form onSubmit={submit} className="grid md:grid-cols-5 gap-2">
+        <input placeholder="Name" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="border rounded px-2 py-1" />
+        <input placeholder="Code" required value={form.code} onChange={e => setForm({...form, code: e.target.value})} className="border rounded px-2 py-1" />
+        <input placeholder="City" required value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="border rounded px-2 py-1" />
+        <input placeholder="State" required value={form.state} onChange={e => setForm({...form, state: e.target.value})} className="border rounded px-2 py-1" />
+        <Button type="submit">Add</Button>
+      </form></Card>
+      {err && <div className="bg-red-50 text-red-700 p-2 rounded">{err}</div>}
+      {items && <Card><table className="w-full text-sm"><thead><tr className="text-left text-gray-500"><th>Code</th><th>Name</th><th>City</th><th>State</th><th></th></tr></thead>
+      <tbody>{items.map(s => <tr key={s.id} className="border-t"><td>{s.code}</td><td>{s.name}</td><td>{s.city}</td><td>{s.state}</td>
+      <td><button onClick={() => del(s.id)} className="text-red-600">Delete</button></td></tr>)}</tbody></table></Card>}
+    </div>
+  );
+}
+
+function AdminTrains() {
+  const [items, setItems] = useState(null); const [form, setForm] = useState({train_number:"",train_name:"",train_type:"Express"}); const [err, setErr] = useState("");
+  const load = () => call("GET", "/trains").then(r => setItems(r.trains)).catch(e => setErr(e.message));
+  useEffect(load, []);
+  const submit = async e => { e.preventDefault(); setErr(""); try { await call("POST", "/trains", form); setForm({train_number:"",train_name:"",train_type:"Express"}); load(); } catch (ex) { setErr(ex.message); } };
+  const toggle = async t => { try { await call("PATCH", "/trains/" + t.id + "/status", { status: t.status === "ACTIVE" ? "INACTIVE" : "ACTIVE" }); load(); } catch (ex) { setErr(ex.message); } };
+  return (
+    <div className="space-y-3">
+      <h2 className="text-xl font-bold">Trains</h2>
+      <Card><form onSubmit={submit} className="grid md:grid-cols-4 gap-2">
+        <input placeholder="Number" required value={form.train_number} onChange={e => setForm({...form, train_number: e.target.value})} className="border rounded px-2 py-1" />
+        <input placeholder="Name" required value={form.train_name} onChange={e => setForm({...form, train_name: e.target.value})} className="border rounded px-2 py-1" />
+        <select value={form.train_type} onChange={e => setForm({...form, train_type: e.target.value})} className="border rounded px-2 py-1">
+          {["Express","Superfast","Intercity","Passenger","Other"].map(t => <option key={t}>{t}</option>)}
+        </select>
+        <Button type="submit">Add</Button>
+      </form></Card>
+      {err && <div className="bg-red-50 text-red-700 p-2 rounded">{err}</div>}
+      {items && <Card><table className="w-full text-sm"><thead><tr className="text-left text-gray-500"><th>Number</th><th>Name</th><th>Type</th><th>Status</th><th></th></tr></thead>
+      <tbody>{items.map(t => <tr key={t.id} className="border-t"><td>{t.train_number}</td><td>{t.train_name}</td><td>{t.train_type}</td><td>{t.status}</td>
+      <td><button onClick={() => toggle(t)} className="text-yellow-700">{t.status === "ACTIVE" ? "Deactivate" : "Activate"}</button></td></tr>)}</tbody></table></Card>}
+    </div>
+  );
+}
+
+function AdminBookings() {
+  const [items, setItems] = useState(null); const [err, setErr] = useState("");
+  useEffect(() => { call("GET", "/admin/bookings").then(r => setItems(r.bookings)).catch(e => setErr(e.message)); }, []);
+  if (!items) return <Card>Loading...</Card>;
+  return (
+    <div className="space-y-3">
+      <h2 className="text-xl font-bold">All Bookings</h2>
+      {err && <div className="bg-red-50 text-red-700 p-2 rounded">{err}</div>}
+      {items.length === 0 && <Card className="text-gray-500 text-center">No bookings.</Card>}
+      {items.length > 0 && <Card><table className="w-full text-sm"><thead><tr className="text-left text-gray-500"><th>PNR</th><th>Train</th><th>Date</th><th>Route</th><th>Class</th><th>Amount</th><th>Status</th></tr></thead>
+      <tbody>{items.map(b => <tr key={b.id} className="border-t"><td>{b.pnr}</td><td>{b.train?.train_number}</td><td>{b.journey_date}</td>
+      <td>{(b.source_station?.name||"") + " to " + (b.destination_station?.name||"")}</td><td>{b.class_name}</td><td>Rs.{b.total_amount}</td><td>{b.status}</td></tr>)}</tbody></table></Card>}
+    </div>
+  );
+}
+
+function AdminUsers() {
+  const [items, setItems] = useState(null); const [err, setErr] = useState("");
+  useEffect(() => { call("GET", "/admin/users").then(r => setItems(r.users)).catch(e => setErr(e.message)); }, []);
+  if (!items) return <Card>Loading...</Card>;
+  return (
+    <div className="space-y-3">
+      <h2 className="text-xl font-bold">Users</h2>
+      {err && <div className="bg-red-50 text-red-700 p-2 rounded">{err}</div>}
+      <Card><table className="w-full text-sm"><thead><tr className="text-left text-gray-500"><th>Name</th><th>Email</th><th>Role</th><th>Bookings</th></tr></thead>
+      <tbody>{items.map(u => <tr key={u.id} className="border-t"><td>{u.name}</td><td>{u.email}</td><td>{u.role}</td><td>{u.booking_count}</td></tr>)}</tbody></table></Card>
+    </div>
+  );
+}
+
+function AdminDashboard() {
+  const [s, setS] = useState(null); const [err, setErr] = useState("");
+  useEffect(() => { call("GET", "/admin/dashboard").then(setS).catch(e => setErr(e.message)); }, []);
+  if (!s) return <Card>Loading...</Card>;
+  return (
+    <div className="space-y-3">
+      <h2 className="text-xl font-bold">Admin Dashboard</h2>
+      {err && <div className="bg-red-50 text-red-700 p-2 rounded">{err}</div>}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[["Total Trains",s.total_trains],["Active Trains",s.active_trains],["Stations",s.total_stations],["Users",s.total_users],
+          ["Today",s.todays_bookings],["Confirmed",s.confirmed_bookings],["Cancelled",s.cancelled_bookings],["Revenue","Rs." + s.revenue]].map(([k,v]) =>
+          <Card key={k}><div className="text-xs text-gray-500">{k}</div><div className="text-xl font-bold">{v}</div></Card>)}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [page, setPage] = useState("home");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (token()) call("GET", "/auth/me").then(r => setUser(r.user)).catch(() => setToken(null)).finally(() => setLoading(false));
+    else setLoading(false);
+  }, []);
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
+  const p = typeof page === "string" ? { name: page } : page;
+  return (
+    <>
+      <Header user={user} setUser={setUser} setPage={setPage} />
+      <main className="max-w-6xl mx-auto px-4 py-6">
+        {p.name === "home" && <Home setPage={setPage} />}
+        {p.name === "login" && <Auth mode="login" setUser={setUser} setPage={setPage} />}
+        {p.name === "register" && <Auth mode="register" setUser={setUser} setPage={setPage} />}
+        {p.name === "search" && <Search setPage={setPage} />}
+        {p.name === "book" && <Book ctx={p} setPage={setPage} />}
+        {p.name === "mybookings" && <MyBookings setPage={setPage} />}
+        {p.name === "pnr" && <Pnr />}
+        {p.name === "ticket" && <Ticket ctx={p} />}
+        {p.name === "dashboard" && <AdminDashboard />}
+        {p.name === "stations" && <AdminStations />}
+        {p.name === "trains" && <AdminTrains />}
+        {p.name === "bookings" && <AdminBookings />}
+        {p.name === "users" && <AdminUsers />}
+      </main>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
